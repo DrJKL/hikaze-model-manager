@@ -174,6 +174,7 @@ class HikazeLoraPanelWidget extends HikazeIsolatedWidget {
 class HikazeLoraRowWidget extends HikazeIsolatedWidget {
     constructor(name, value = null) {
         super(name, { height: 30 });
+        this.type = 'hikaze_lora_row';
         this.value = value || { key: '', label: 'None', sm: 1.0, sc: 1.0, on: true };
         this.customDraw = this.drawLoraRow.bind(this);
         this.customMouse = this.mouseLoraRow.bind(this);
@@ -337,6 +338,14 @@ class HikazeLoraRowWidget extends HikazeIsolatedWidget {
     }
 }
 
+function isHikazeLoraPanelWidget(widget){
+    return widget && widget.type === 'hikaze_lora_panel' && typeof widget.ensureHeight === 'function';
+}
+
+function isHikazeLoraRowWidget(widget){
+    return widget && widget.type === 'hikaze_lora_row' && typeof widget.removeFromNode === 'function';
+}
+
 function collectLoraGroups(node){
     const groups = new Map(); // idx -> { idx, on, nameWidget, nameVal, smWidget, scWidget }
     const list = Array.isArray(node.widgets) ? node.widgets : [];
@@ -380,7 +389,7 @@ function clearAllGroups(node){
             if (!name) return true;
             // 去除旧的行部件和新的面板部件（面板后面重新创建）
             const isOld = re.test(String(name));
-            const isNew = w instanceof HikazeLoraRowWidget || w instanceof HikazeLoraPanelWidget;
+            const isNew = isHikazeLoraRowWidget(w) || isHikazeLoraPanelWidget(w);
             return !isOld && !isNew;
         });
     }catch(err){ console.warn('[Hikaze] clearAllGroups failed:', err); }
@@ -392,7 +401,7 @@ function ensureGroup(node, idx, item){
     const widgetName = `lora_${idx}`;
     
     // Check if widget with this name already exists
-    let existingWidget = node.widgets.find(w => w.name === widgetName && w instanceof HikazeLoraRowWidget);
+    let existingWidget = node.widgets.find(w => w.name === widgetName && isHikazeLoraRowWidget(w));
     
     const widgetValue = {
         key: normalizeLoraKey(item.key || item.value || ''),
@@ -421,7 +430,7 @@ function currentSelectedKeysForPreselect(node){
     
     // Look for both old format and new custom widgets
     for(const w of node.widgets){
-        if (w instanceof HikazeLoraRowWidget && w.value && w.value.key){
+        if (isHikazeLoraRowWidget(w) && w.value && w.value.key){
             const key = normalizeLoraKey(w.value.key);
             if (key) keys.push(key);
         } else if (w && w.name && w.name.match(/^lora_\d+$/) && w.value){
@@ -442,7 +451,7 @@ function currentSelectedItemsForPreselect(node){
     }
     if (!node.widgets) return items;
     for(const w of node.widgets){
-        if (w instanceof HikazeLoraRowWidget && w.value && w.value.key){
+        if (isHikazeLoraRowWidget(w) && w.value && w.value.key){
             const key = normalizeLoraKey(w.value.key);
             if (key) items.push({ key, label: w.value.label || key, sm: w.value.sm||1, sc: w.value.sc||1, on: w.value.on!==false });
         }
@@ -703,13 +712,13 @@ function syncHiddenLoraWidgets(node){
         // 保留：panel, choose button, 其它非 lora_*；移除旧 lora_* 隐藏项
         node.widgets = node.widgets.filter(w=>{
             if (!w) return false;
-            if (w instanceof HikazeLoraPanelWidget) return true;
+            if (isHikazeLoraPanelWidget(w)) return true;
             const n = w.name || w.label;
             if (n === 'choose_models') return true;
             if (/^lora_\d+(?:(_on|_strength_model|_strength_clip))?$/.test(String(n))) return false;
             return true;
         });
-        const panel = node.widgets.find(w=> w instanceof HikazeLoraPanelWidget);
+        const panel = node.widgets.find(isHikazeLoraPanelWidget);
         // 插入隐藏widgets 紧跟 panel 之后（若存在）
         let insertIndex = panel ? (node.widgets.indexOf(panel)+1) : node.widgets.length;
         const list = Array.isArray(node.loraItems) ? node.loraItems : [];
@@ -751,7 +760,7 @@ function enhancePowerLoraLoaderNode(node){
         clearAllGroups(node);
         node.loraItems = migrate.length? migrate: [{ key:'', label:'None', sm:1, sc:1, on:true }];
         // 添加面板部件
-        let panel = node.widgets.find(w=> w instanceof HikazeLoraPanelWidget);
+        let panel = node.widgets.find(isHikazeLoraPanelWidget);
         if (!panel){
             panel = new HikazeLoraPanelWidget('lora_panel', { itemsProvider: ()=> node.loraItems });
             node.widgets.push(panel);
@@ -770,7 +779,7 @@ function enhancePowerLoraLoaderNode(node){
         const originalConfigure = node.configure;
         node.configure = function(info){ if (originalConfigure) originalConfigure.apply(this, arguments); if (info && info.inputs){ const groups={}; for (const [k,v] of Object.entries(info.inputs)){ const m=k.match(/^lora_(\d+)(?:_(on|strength_model|strength_clip))?$/); if(!m) continue; const i=parseInt(m[1],10); if(!groups[i]) groups[i]={sm:1,sc:1,on:true}; const sub=m[2]; if(!sub){ groups[i].key=v; groups[i].label=v; } else if(sub==='strength_model'){ groups[i].sm=Number(v)||1;} else if(sub==='strength_clip'){ groups[i].sc=Number(v)||1;} else if(sub==='on'){ groups[i].on= !!v && v!==0 && v!=='0'; } } this.loraItems=Object.keys(groups).sort((a,b)=>a-b).map(i=>groups[i]); if(!this.loraItems.length) this.loraItems=[{key:'',label:'None',sm:1,sc:1,on:true}]; this.updateLoraPanel&&this.updateLoraPanel(); } };
         const originalComputeSize = node.computeSize;
-        node.computeSize = function(){ const base = originalComputeSize ? originalComputeSize.call(this) : [220,120]; const pnl = this.widgets.find(w=> w instanceof HikazeLoraPanelWidget); if (pnl){ base[0] = Math.max(base[0], 380); } return base; };
+        node.computeSize = function(){ const base = originalComputeSize ? originalComputeSize.call(this) : [220,120]; const pnl = this.widgets.find(isHikazeLoraPanelWidget); if (pnl){ base[0] = Math.max(base[0], 380); } return base; };
         // 选择按钮
         if (!node.widgets.some(w=> w.name==='choose_models')){
             const btn = node.addWidget && node.addWidget('button','choose_models', t('mm.btn.chooseModelEllipsis'), ()=>{ const requestId='sel_'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); const selectedItems=currentSelectedItemsForPreselect(node); const overlay=openModelSelector({kind:'lora', requestId, selectedItems}); HikazeManager.pending.set(requestId,{ node, overlay, mode:'replace'}); }, { serialize:false });
